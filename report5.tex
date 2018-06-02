@@ -1,0 +1,117 @@
+\documentclass[12pt]{jsarticle}  
+\usepackage[dvipdfm,left=1.5cm,right=1.5cm,top=2cm]{geometry}
+\usepackage[dvipdfmx]{graphicx}
+\usepackage{amsmath, amssymb}
+\usepackage{bm}
+\usepackage{comment}
+\usepackage{framed}
+\usepackage{tabularx}
+
+\setlength{\topmargin}{-1in}
+\addtolength{\topmargin}{5mm}
+\setlength{\headheight}{5mm}
+\setlength{\headsep}{0mm}
+\setlength{\textheight}{\paperheight}
+\addtolength{\textheight}{-25mm}
+\setlength{\footskip}{5mm}
+
+\newcommand{\frontpage}[3]{%
+\begin{center}
+　\\
+\vspace{15em}{\LARGE{}レポート課題}\\
+　\\
+{\Huge\bf#1}\\
+\vspace{30em}
+{\LARGE\today}\\
+\vspace{2em}
+{\LARGE#2　#3}
+\end{center}
+\thispagestyle{empty}
+\clearpage
+\setcounter{page}{1}
+}
+
+\newcommand{\result}[5]{
+\begin{minipage}{0.05\hsize}
+(#1)
+\end{minipage}
+\begin{minipage}{0.22\hsize}
+\includegraphics[width=\linewidth]{#2}j
+\end{minipage}
+\begin{minipage}{0.22\hsize}
+\includegraphics[width=\linewidth]{#3}
+\end{minipage}
+\begin{minipage}{0.22\hsize}
+\includegraphics[width=\linewidth]{#4}
+\end{minipage}
+\begin{minipage}{0.22\hsize}
+\includegraphics[width=\linewidth]{#5}
+\end{minipage}
+\\
+}
+
+\begin{document}
+
+\frontpage
+{敵対的生成ネットワークの特性評価}
+{S142000}
+{成蹊　太郎}
+
+\section{実験目的}
+
+高精度な生成モデルとして有力視されている敵対的生成ネットワークの原理および特性について理解する．
+
+\section{実験原理}
+
+\subsection{敵対的生成ネットワーク（Generative Adversarial Network，GAN）}
+
+敵対的生成ネットワークについて説明する．
+以下の疑問に対する答えが含まれているようにすること．
+\begin{itemize}
+\item 敵対的生成ネットワークの核となるアイデアと利点，応用先を説明する．
+\item 敵対的生成ネットワークの全体構成．例として演習課題の構成を図示し，各構成要素の役割を説明する．
+\item 目的関数の定義とその意味．生成器（Generator）および判別器（Discriminator）の目的関数を最小化問題として解ける形で示し，その意味を説明する．
+\item 学習方法．演習課題を例に学習の流れについて数式を用いて具体的に説明する．
+\item 敵対的生成ネットワークの代表的な成功例であるpix2pixの条件付き敵対的生成ネットワークについて，特に入力と目的関数の変化を説明する．
+\end{itemize}
+
+\section{実験方法}
+
+以下の各実験項目について，具体的な実験方法を設計し，説明する．
+実験データにはfashion-MNISTデータセットを用いること．
+実験条件ごとに番号をつけ，確認したい項目および実験結果の再現に必要な条件（ネットワーク構成，目的関数，パラメータの初期化方法，パラメータの更新方法，学習回数，学習およびテストデータ数など）を明記すること．
+
+
+\subsection{敵対的生成ネットワークの学習}
+
+生成画像の品質が高くなるように敵対的生成ネットワークを設計し，学習を行う．
+学習の進行状況を確認するために，生成器および判別器の誤差の推移を表すグラフを作成する．
+学習結果を確認するために，生成器の出力を画像化する．
+あわせて，生成画像に対する画像認識ネットワークの認識率を評価する．
+
+\subsection{条件付き敵対的生成ネットワークの学習}
+
+生成する画像の種類を指定できるような条件付き敵対的生成ネットワークを構成し，学習を行う．
+学習の進行状況を確認するために，生成器および判別器の誤差の推移を表すグラフを作成する．
+学習結果を確認するために，種類ごとに10枚ずつ画像を生成する．
+あわせて，生成画像に対する画像認識ネットワークの認識率を評価する．
+
+\subsection{敵対的生成ネットワークの学習ノウハウの収集}
+
+自分なりに観点を決め，学習を成功させるためのノウハウを得るための比較実験をせよ．
+どういう観点にもとづき何を比較するかを明確に示すこと．
+観点は全員別のものを選ぶこと．
+バッチ正規化の効果については全員試すこと．
+
+\section{実験結果}
+
+実験項目ごとに，実験条件を示し，対応する結果（グラフもしくは画像）を示す．
+
+\section{考察}
+
+実験結果をもとに，学習を成功させる（高品質の生成画像の得る）ためのノウハウをまとめよ．
+また実験中に経験した学習の失敗パターンをあげ，現象と原因について整理せよ．
+
+\end{document}
+
+
