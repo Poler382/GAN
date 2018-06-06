@@ -1,4 +1,4 @@
-import math._
+--import math._
 import breeze.linalg._
 
 abstract class Layer {
@@ -100,25 +100,35 @@ class Affine(val xn:Int, val yn:Int) extends Layer{
     xs = List[Array[Double]]()
   }
 
-  override def save(fn:String){
-    val save = new java.io.PrintWriter(fn+"Af.txt")
-    for(i<-0 until yn ; j<-0 until xn){
-      save.println(W(i,j))
+ 
+  override def load(fn:String) {
+    println(fn)
+    val f =scala.io.Source.fromFile(fn).getLines.map(_.split(",").map(_.toDouble).toArray).toArray
+    for(i <- 0 until yn; j <- 0 until xn){
+      W(i,j)=f(0)(i*xn+j)
     }
-    for(i<-0 until yn){
-      save.println(b(i))
+    for(i <- 0 until yn){
+      b(i)=f(1)(i)
     }
-    save.close
   }
-
-  override def load(fn:String){
-    val f = scala.io.Source.fromFile(fn+"Af.txt").getLines.toArray
-    for(i<-0 until yn ; j<-0 until xn){
-      W(i,j) = f(i*xn + j).toDouble
+  override def save(fn:String) {
+    val file=new java.io.PrintWriter(fn)
+    for(i <- 0 until yn; j <- 0 until xn){
+      if(i == yn-1 && j== xn-1){
+        file.print(W(i,j))
+      }
+      else{
+        file.print(W(i,j)+",")
+      }
     }
-    for(i<-0 until yn){
-      b(i) = f(yn*xn + i).toDouble
+    file.println()
+    for(i <- 0 until yn){
+      if(i == yn-1){file.print(b(i))}
+      else{
+        file.print(b(i)+",")
+      }
     }
+    file.close
   }
 }
 
@@ -262,11 +272,7 @@ class Pooling(val BW:Int, val IC:Int, val IH:Int, val IW:Int) extends Layer{
 
   override def save(fn:String){}
   override def load(fn:String){}
-
-
 }
-
-
 
 
 class Convolution(
@@ -288,7 +294,7 @@ class Convolution(
   def zind(i:Int,j:Int,k:Int)=i*(H-kw+1)*(W-kw+1)+j*(W-kw+1)+k
 
    override def save(fn:String){
-    val save = new java.io.PrintWriter(fn+"Conv.txt")
+    val save = new java.io.PrintWriter("biasdata/"+fn+"-"+I.toString+H.toString+O.toString+W.toString+kw.toString+"Conv.txt")
     for(i<-0 until O ; j<-0 until I;k <- 0 until kw*kw){
       save.println(K(i)(j)(k))
     }
@@ -296,7 +302,7 @@ class Convolution(
   }
 
    override def load(fn:String){
-    val f = scala.io.Source.fromFile(fn+"Conv.txt").getLines.toArray
+    val f = scala.io.Source.fromFile("biasdata"+fn+"-"+I.toString+H.toString+O.toString+W.toString+kw.toString+"Conv.txt").getLines.toArray
     for(i<-0 until O ; j<-0 until I ; k<-0 until kw* kw){
       K(i)(j)(k) = f(i*I*kw*kw + j*kw*kw + k*kw ).toDouble
     }
@@ -368,5 +374,268 @@ class Convolution(
 
   def reset() {
     d_k=Array.ofDim[Double](O,I,kw*kw)
+  }
+}
+//D:各データの個数　データ数dxxc
+class BatchNormalization(val D:Int,val n: Int){
+  var xn = D
+  var gamma   = DenseVector.ones[Double](D)
+  var beta    = DenseVector.zeros[Double](D)
+  var d_beta  = DenseVector.zeros[Double](D)
+  var d_gamma = DenseVector.zeros[Double](D)
+  var mu      = DenseVector.zeros[Double](D)
+  var eps     = 0.00000001
+  var sigma   = DenseVector.zeros[Double](D)
+  var x_h     = new Array[DenseVector[Double]](D)
+  var x_m     = new Array[DenseVector[Double]](D)
+  var xmu     = new Array[DenseVector[Double]](D)
+  var dg      = DenseVector.zeros[Double](xn)
+  var db      = DenseVector.zeros[Double](xn)
+  var count   = 0
+
+  def forward(xs:Array[DenseVector[Double]])={
+    var y = new Array[DenseVector[Double]](xs.size)
+    
+    for(i <- 0 until xs.size){
+      for (j <- 0 until xn){
+        mu(j)+=xs(i)(j)/xs.size
+      }
+    }
+
+    x_m = new Array[DenseVector[Double]](xs.size)
+    
+    for(i <- 0 until xs.size){
+      x_m(i)=DenseVector.zeros[Double](xn)
+      for(j <- 0 until xn){
+        x_m(i)(j) = xs(i)(j) - mu(j)
+  
+        sigma(j) += x_m(i)(j)* x_m(i)(j)/xs.size
+      }
+    }
+
+    x_h=new Array[DenseVector[Double]](xs.size)
+    for(i <- 0 until xs.size){
+      y(i)=DenseVector.zeros[Double](xn)
+      x_h(i)=DenseVector.zeros[Double](xn)
+      for (j <- 0 until xn){
+        x_h(i)(j)= (x_m(i)(j))/math.sqrt(sigma(j)+eps)
+        y(i)(j)=gamma(j)*x_h(i)(j)+beta(j)
+      }
+    }
+    y
+  }
+
+
+
+//たてよこの行列を潰して各データのsumに変える
+  def sumMatrix(in:Array[DenseVector[Double]])={
+    var m  = DenseVector.zeros[Double](D)
+    for(j <- 0 until D){
+      for(i <- 0 until n){
+        m(j) += in(i)(j)
+      }
+    }
+    m
+  }
+
+  def backward(d:Array[DenseVector[Double]])={
+    var d_beta = sumMatrix(d)
+    var dx = new Array[DenseVector[Double]](n)
+  
+    for(i <- 0 until n){
+      dx(i) = DenseVector.zeros[Double](D)
+    }
+
+    for(j <- 0 until D){
+      for(i <- 0 until n){
+        d_gamma(j) += d(i)(j) * x_h(i)(j)
+      }
+    }
+
+    //各次元ごとに計算
+    for(j <- 0 until D ){
+      var d2 = 0d
+      var d1 = DenseVector.zeros[Double](n)
+      for(i <- 0 until n ){
+        d1(i) = gamma(j) * d(i)(j)
+        d2 += x_m(i)(j) *d1(i)
+      }
+      
+      var d3 = - d2 / (sigma(j)+eps) 
+      var d4 = d3 / (2*sqrt(sigma(j)+eps))
+
+      var d8 = 0d
+      var d6 = DenseVector.zeros[Double](n)
+      var d7 = DenseVector.zeros[Double](n)
+     
+      for(i <- 0 until n){
+        var d5 = 1 / n.toDouble *d4
+        d6(i) = 2 * x_m(i)(j) * d5
+        d7(i) = d1(i) * 1/sqrt(sigma(j)+eps)
+        d8 -= d6(i) + d7(i)
+      }
+      for(i <- 0 until n){
+        var d9 = 1 / n.toDouble * d8
+        var d10 = d6(i)+d7(i)
+        dx(i)(j) = d9 + d10
+      }
+
+    }
+    dx
+  }
+  var adam_b = new Adam_DV(xn)
+  var adam_g = new Adam_DV(xn)
+  def update(){
+    adam_b.update(beta,d_beta,n)
+    adam_g.update(gamma,d_gamma,n)
+    reset()
+  }
+  def reset(){
+    db = DenseVector.zeros[Double](xn)
+    dg = DenseVector.zeros[Double](xn)
+    count=0
+  }
+
+  override def save(fn:String){}
+  override def load(fn:String){}
+
+}
+
+
+
+class Adam_DM(val rows:Int, val cols:Int) {
+  val eps = 0.001
+  val delta = 1e-8
+  val rho1 = 0.9
+  val rho2 = 0.999
+  var rho1t = 1d
+  var rho2t = 1d
+  var s = DenseMatrix.zeros[Double](rows,cols)
+  var r = DenseMatrix.zeros[Double](rows,cols)
+
+  def update(K:DenseMatrix[Double], dK:DenseMatrix[Double],count:Int) = {
+    rho1t *= rho1
+    rho2t *= rho2
+    val rho1tr = 1 / (1 - rho1t)
+    val rho2tr = 1 / (1 - rho2t)
+    for(i <- 0 until K.rows; j <- 0 until K.cols) {
+      s(i,j) = rho1 * s(i,j) + (1 - rho1) * dK(i,j)
+      r(i,j) = rho2 * r(i,j) + (1 - rho2) * dK(i,j) * dK(i,j)
+      val d = (s(i,j) * rho1tr) / (math.sqrt(r(i,j) * rho2tr) + delta)
+      K(i,j) = K(i,j) - eps/count * d
+    }
+  }
+}
+class Adam_DV(val n:Int) {
+  val eps = 0.001
+  val delta = 1e-8
+  val rho1 = 0.9
+  val rho2 = 0.999
+  var rho1t = 1d
+  var rho2t = 1d
+  var s = DenseVector.zeros[Double](n)
+  var r = DenseVector.zeros[Double](n)
+
+  def update(K:DenseVector[Double], dK:DenseVector[Double],count:Int) = {
+    rho1t *= rho1
+    rho2t *= rho2
+    val rho1tr = 1 / (1 - rho1t)
+    val rho2tr = 1 / (1 - rho2t)
+    for(i <- 0 until K.size) {
+      s(i) = rho1 * s(i) + (1 - rho1) * dK(i)
+      r(i) = rho2 * r(i) + (1 - rho2) * dK(i) * dK(i)
+      val d = (s(i) * rho1tr) / (math.sqrt(r(i) * rho2tr) + delta)
+      K(i) = K(i) - eps/count * d
+    }
+  }
+}
+
+
+
+
+object Image {
+  def rgb(im : java.awt.image.BufferedImage, i:Int, j:Int) = {
+    val c = im.getRGB(i,j)
+    Array(c >> 16 & 0xff, c >> 8 & 0xff, c & 0xff)
+  }
+
+  def pixel(r:Int, g:Int, b:Int) = {
+    val a = 0xff
+    ((a & 0xff) << 24) | ((r & 0xff) << 16) | ((g & 0xff) << 8) | (b & 0xff)
+  }
+
+  def read(fn:String) = {
+    val im = javax.imageio.ImageIO.read(new java.io.File(fn))
+    (for(i <- 0 until im.getHeight; j <- 0 until im.getWidth)
+    yield rgb(im, j, i)).toArray.grouped(im.getWidth).toArray
+  }
+
+  def write(fn:String, b:Array[Array[Array[Int]]]) = {
+    val w = b(0).size
+    val h = b.size
+    val im = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_RGB);
+    for(i <- 0 until im.getHeight; j <- 0 until im.getWidth) {
+      im.setRGB(j,i,pixel(b(i)(j)(0), b(i)(j)(1), b(i)(j)(2)));
+    }
+    javax.imageio.ImageIO.write(im, "png", new java.io.File(fn))
+  }
+
+  def make_image2(ys:Array[Array[Double]], NW:Int, NH:Int, H:Int, W:Int) = {
+    val im = Array.ofDim[Int](NH * H, NW * W, 3)
+    val ymax = ys.flatten.max
+    val ymin = ys.flatten.min
+    def f(a:Double) = ((a - ymin) / (ymax - ymin) * 255).toInt
+    for(i <- 0 until NH; j <- 0 until NW) {
+      for(p <- 0 until H; q <- 0 until W; k <- 0 until 3) {//k * H * W +
+        im(i * H + p)(j * W + q)(k) = f(ys(i * NW + j)( p * W + q))
+      }
+    }
+    im
+  }
+
+
+  def make_image3(ys:Array[Array[Double]], NW:Int, NH:Int, H:Int, W:Int) = {
+    val im = Array.ofDim[Int](NH * H, NW * W, 3)
+    /*  val ymax = ys.flatten.max
+     val ymin = ys.flatten.min*/
+    def f(a:Double) = (a*255).toInt
+
+    for(i <- 0 until NH; j <- 0 until NW) {
+      for(p <- 0 until H; q <- 0 until W; k <- 0 until 3) {
+        im(i * H + p)(j * W + q)(k) = f(ys(i * NW + j)( p * W + q))
+      }
+    }
+    im
+  }
+
+  //三色用
+
+  def make_image(ys:Array[Array[Double]], NW:Int, NH:Int, H:Int, W:Int) = {
+    val im = Array.ofDim[Int](NH * H, NW * W, 3)
+    val ymax = ys.flatten.max
+    val ymin = ys.flatten.min
+    def f(a:Double) = ((a - ymin) / (ymax - ymin) * 255).toInt
+    for(i <- 0 until NH; j <- 0 until NW) {
+      for(p <- 0 until H; q <- 0 until W; k <- 0 until 3) {
+        im(i * H + p)(j * W + q)(k) = f(ys(i * NW + j)(k * H * W + p * W + q))
+      }
+    }
+    im
+  }
+
+  def to3DArrayOfColor(image:Array[Double],h:Int,w:Int) = {
+    val input = image.map(_*256)
+    var output = List[Array[Array[Double]]]()
+    for(i <- 0 until h) {
+      var row = List[Array[Double]]()
+      for(j <- 0 until w) {
+        val red = input(i*w+j)
+        val green = input(i*w+j+h*w)
+        val blue = input(i*w+j+h*w*2)
+        row ::= Array(red,green,blue)
+      }
+      output ::= row.reverse.toArray
+    }
+    output.reverse.toArray.map(_.map(_.map(_.toInt)))
   }
 }

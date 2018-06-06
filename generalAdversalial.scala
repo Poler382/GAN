@@ -22,7 +22,7 @@ object GAN{
       //D learning
       var ygList = List[Array[Double]]()
       var zList = List[Array[Double]]()
-      
+
       for((x,z)<- dtrain.take(dn)){
         val z = new Array[Double](28*28).map(_ => rand.nextGaussian )
         val yg = gan_Network.forwards(G,z)

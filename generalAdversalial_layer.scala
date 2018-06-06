@@ -3,8 +3,17 @@ object gan_Network{
   def select_G(mode:String)={
     val g = mode match {
       case "0" =>{
-        val a = new Affine (28*28,28*28)
-        val b = new Tanh()
+        val a = new Affine (100,256)
+        val b = new BatchNormalization(1,256)
+        val c = new ReLU()
+        val d = new Affine(256,512)
+        val e = new BatchNormalization(1,256)
+        val g = new ReLU()
+        val h = new Afiine(512,1024)
+        val i = new BatchNormalization(1,256)
+        val j = new ReLU()
+        val k = new Affine (1024,784)
+        val l = new Tanh()
         List(a,b)
       }
 
