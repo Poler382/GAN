@@ -4,17 +4,28 @@ object gan_Network{
     val g = mode match {
       case "0" =>{
         val a = new Affine (100,256)
-        val b = new BatchNormalization(1,256)
+        val b = new BatchNormalization2(256)
         val c = new ReLU()
         val d = new Affine(256,512)
-        val e = new BatchNormalization(1,256)
+        val e = new BatchNormalization2(512)
         val g = new ReLU()
-        val h = new Afiine(512,1024)
-        val i = new BatchNormalization(1,256)
+        val h = new Affine(512,1024)
+        val i = new BatchNormalization2(1024)
         val j = new ReLU()
         val k = new Affine (1024,784)
         val l = new Tanh()
-        List(a,b)
+        List(a,b,c,d,e,g,h,i,j,k,l)
+      }
+      case "00" =>{
+        val a = new Affine (100,256)
+        val b = new ReLU()
+        val c = new Affine(256,512)
+        val d = new ReLU()
+        val e = new Affine(512,1024)
+        val f = new ReLU()
+        val g = new Affine (1024,784)
+        val h = new Tanh()
+        List(a,b,c,d,e,f,g,h)
       }
 
       case "test" =>{
@@ -31,9 +42,13 @@ object gan_Network{
   def select_D(mode:String)={
     val d = mode match {
       case "0" => {
-        val a = new Affine (28*28,28*28)
-        val b = new Sigmoid()
-        List(a,b)
+        val a = new Affine(784,1024)
+        val b = new ReLU()
+        val c = new Affine(1024,512)
+        val d = new ReLU()
+        val e = new Affine(512,1)
+        val f = new Sigmoid()
+        List(a,b,c,d,e,f)
       }
       case "test"=>{
         val a= new Affine(1,1)
@@ -67,9 +82,5 @@ object gan_Network{
   def resets(layers:List[Layer]){
     for(lay <- layers){lay.reset()}
   }
-
-
-
-
 
 }

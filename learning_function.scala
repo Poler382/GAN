@@ -10,10 +10,10 @@ object learning{
     countT:Double,
     dn:Int,
     tn:Int){
-    var printdata = "result:"+num.toString+"- time:"+time.toString+"\n"
+    var printdata = "result:"+num.toString+" - time:"+(time/1000d).toString+"\n"
 
     for(i <- 0 until errlist.size){
-      printdata += "err"+(i+1).toString+":"+(errlist(i)/1000d).toString+"/"
+      printdata += "err"+(i+1).toString+":"+errlist(i).toString+"/"
     }
 
     printdata += "\n"
@@ -27,11 +27,27 @@ object learning{
       printdata += "\n"
     }
 
-    
-
-    print(printdata)
+    println(printdata)
 
   }
 
+
+
+   def print_result2(
+     num:Int,
+     time:Double,
+     namelist:List[String],
+     outlist:List[Double],
+     sp:Int){
+     var printdata = "result:"+num.toString+" - time:"+(time/1000d).toString+"\n"
+
+     for(i <- 0 until outlist.size){
+       printdata += namelist(i)+":"+outlist(i).toString+"/"
+       if(i == sp || i == outlist.size){printdata += "\n"}
+     }
+
+     println(printdata)
+
+   }
 
 }

@@ -1,5 +1,20 @@
---import math._
+import math._
 import breeze.linalg._
+
+/*
+affine
+ReLU
+LeakyLeLU
+tanh
+Sigmoid
+Pooling
+Convolution
+BacthNormalization 未完成　arrayVerを作る
+AdamDM
+AdamDV
+object Image 
+
+*/
 
 abstract class Layer {
   def forward(x:Array[Double]) : Array[Double]
@@ -147,17 +162,41 @@ class ReLU() extends Layer {
     (0 until d.size).map(i => if(y(i) > 0) d(i) else 0d).toArray
   }
 
-  def update() {
-    reset()
-  }
-
-  def reset() {
-    ys = List[Array[Double]]()
-  }
+  def update() {reset()}
+  def reset() {ys = List[Array[Double]]()}
 
   override def save(fn:String){}
   override def load(fn:String){}
 
+}
+
+class LeakyReLU() extends Layer{
+  var ys = List[Array[Double]]()
+  def push(y:Array[Double]) = { ys ::= y; y }
+  def pop() = { val y = ys.head; ys = ys.tail; y }
+
+  def forward(x:Array[Double]) = {
+    var returny = new Array[Double](x.size)
+    for(i <- 0 until x.size){
+      if(x(i) > 0){ 
+        returny(i) = x(i) 
+      }else{
+        returny(i) = x(i)*0.2
+      }
+    }
+    push(returny)
+  }
+
+  def backward(d:Array[Double]) = {
+    val y = pop()
+    (0 until d.size).map(i => if(y(i) > 0) d(i) else d(i)*0.2).toArray
+  }
+
+  def update() {reset()}
+  def reset() {ys = List[Array[Double]]()}
+
+  override def save(fn:String){}
+  override def load(fn:String){}
 }
 
 
@@ -376,8 +415,8 @@ class Convolution(
     d_k=Array.ofDim[Double](O,I,kw*kw)
   }
 }
-//D:各データの個数　データ数dxxc
-class BatchNormalization(val D:Int,val n: Int){
+//D:各データの個数　データ数n
+class BatchNormalization(val D:Int,val n: Int) extends Layer{
   var xn = D
   var gamma   = DenseVector.ones[Double](D)
   var beta    = DenseVector.zeros[Double](D)
@@ -393,9 +432,16 @@ class BatchNormalization(val D:Int,val n: Int){
   var db      = DenseVector.zeros[Double](xn)
   var count   = 0
 
-  def forward(xs:Array[DenseVector[Double]])={
-    var y = new Array[DenseVector[Double]](xs.size)
+  def forward(x:Array[Double] )={x}
+
+  def backward(x:Array[Double] )={x}
+
+
+  def forward2(xs:Array[DenseVector[Double]] )={
+
     
+    var y = new Array[DenseVector[Double]](xs.size)
+
     for(i <- 0 until xs.size){
       for (j <- 0 until xn){
         mu(j)+=xs(i)(j)/xs.size
@@ -413,7 +459,7 @@ class BatchNormalization(val D:Int,val n: Int){
       }
     }
 
-    x_h=new Array[DenseVector[Double]](xs.size)
+    x_h = new Array[DenseVector[Double]](xs.size)
     for(i <- 0 until xs.size){
       y(i)=DenseVector.zeros[Double](xn)
       x_h(i)=DenseVector.zeros[Double](xn)
@@ -438,7 +484,10 @@ class BatchNormalization(val D:Int,val n: Int){
     m
   }
 
-  def backward(d:Array[DenseVector[Double]])={
+  def backward2(d:Array[DenseVector[Double]])={
+
+   
+
     var d_beta = sumMatrix(d)
     var dx = new Array[DenseVector[Double]](n)
   
@@ -504,9 +553,9 @@ class BatchNormalization(val D:Int,val n: Int){
 
 
 class Adam_DM(val rows:Int, val cols:Int) {
-  val eps = 0.001
+  val eps = 0.0002
   val delta = 1e-8
-  val rho1 = 0.9
+  val rho1 = 0.5
   val rho2 = 0.999
   var rho1t = 1d
   var rho2t = 1d
@@ -527,9 +576,9 @@ class Adam_DM(val rows:Int, val cols:Int) {
   }
 }
 class Adam_DV(val n:Int) {
-  val eps = 0.001
+  val eps = 0.0002
   val delta = 1e-8
-  val rho1 = 0.9
+  val rho1 = 0.5
   val rho2 = 0.999
   var rho1t = 1d
   var rho2t = 1d
@@ -638,4 +687,153 @@ object Image {
     }
     output.reverse.toArray.map(_.map(_.map(_.toInt)))
   }
+}
+
+
+class BatchNormalization2(val yoko:Int) extends Layer {
+
+  var Myu = new Array[Double](yoko)
+  var Sig = new Array[Double](yoko)
+  var xh = Array.ofDim[Double](1,yoko)
+  var ys = Array.ofDim[Double](1,yoko)
+  var xMyu = Array.ofDim[Double](1,yoko)
+  var ivar = Array.ofDim[Double](yoko)
+  var sqrtvar = Array.ofDim[Double](yoko)
+  
+  var dganma = Array.ofDim[Double](yoko)
+  var dbeta = Array.ofDim[Double](yoko)
+
+  val e = 0.00000001
+
+  var ganma = new Array[Double](yoko)
+  var beta = new Array[Double](yoko)
+  for(i<-0 until yoko){
+    ganma(i) = 1d
+    beta(i) = 0d
+  }
+
+  val adam_ganma = new Adam(yoko)
+  val adam_beta = new Adam(yoko)
+
+  override def forward(xs:Array[Array[Double]]) = {
+    xh = Array.ofDim[Double](xs.size,yoko)
+    ys = Array.ofDim[Double](xs.size,yoko)
+    xMyu = Array.ofDim[Double](xs.size,yoko)
+   
+    val tate = xs.size
+
+    for(j<-0 until yoko){
+      for(i<-0 until tate){
+        Myu(j) += xs(i)(j)
+      }
+      Myu(j) = Myu(j)/tate
+    }
+
+    for(j<-0 until yoko){
+      for(i<-0 until tate){
+        Sig(j) += (xs(i)(j)-Myu(j))*(xs(i)(j)-Myu(j))
+        xMyu(i)(j) = xs(i)(j)-Myu(j)
+      }
+      Sig(j) = Sig(j)/tate
+    }
+
+    for(i<-0 until tate ; j<-0 until yoko){
+      xh(i)(j) = (xs(i)(j)-Myu(j))/math.sqrt(Sig(j)+e)
+      if(i==0){
+        sqrtvar(j) = math.sqrt(Sig(j)+e)
+        ivar(j) = 1/sqrtvar(j)
+      }
+    }
+
+    for(i<-0 until tate ; j<-0 until yoko){
+      ys(i)(j) = ganma(j)*xh(i)(j)+beta(j)
+    }
+    ys
+  }
+
+  override def backward(ds:Array[Array[Double]]) = {
+
+    val tate = ds.size
+
+    var dxh = Array.ofDim[Double](tate,yoko)
+    var divar = Array.ofDim[Double](yoko)
+    var dxMyu1 = Array.ofDim[Double](tate,yoko)
+    var dsqrtvar = Array.ofDim[Double](yoko)
+    var dvar = Array.ofDim[Double](yoko)
+    var dsq = Array.ofDim[Double](tate,yoko)
+    var dxMyu2 = Array.ofDim[Double](tate,yoko)
+    var dMyu = Array.ofDim[Double](yoko)
+    var dx1 = Array.ofDim[Double](tate,yoko)
+    var dx2 = Array.ofDim[Double](tate,yoko)
+    var dx = Array.ofDim[Double](tate,yoko)
+
+    for(j<-0 until yoko ; i<-0 until tate)
+      dbeta(j) += ds(i)(j)//beta
+
+    for(j<-0 until yoko ; i<-0 until tate){
+      dganma(j) += ds(i)(j) * xh(i)(j)//ganma
+      dxh(i)(j) = ds(i)(j) * ganma(j)//d1 
+    }
+
+    for(j<-0 until yoko ; i<-0 until tate ){
+      divar(j) += dxh(i)(j)*xMyu(i)(j)//d2
+      dxMyu1(i)(j) = dxh(i)(j)*ivar(j)//d7
+    }
+   
+    for(j<-0 until yoko){
+      dsqrtvar(j) = divar(j) * (-1/(sqrtvar(j)*sqrtvar(j)))//d3
+    }
+
+    for(j<-0 until yoko){
+      dvar(j) = 0.5 * (1/math.sqrt(Sig(j)+e)) * dsqrtvar(j)//d4
+    }
+ 
+    for(j<-0 until yoko){
+      for(i<-0 until tate)
+        dsq(i)(j) = dvar(j)/tate//d5
+    }
+
+    for(i<-0 until tate ; j<-0 until yoko){
+      dxMyu2(i)(j) = 2*xMyu(i)(j) * dsq(i)(j)//d6
+    }
+
+    for(j<-0 until yoko ){
+      for(i<-0 until tate){
+        dMyu(j) += dxMyu1(i)(j) + dxMyu2(i)(j)//d8
+        dx1(i)(j) = 1 * dxMyu1(i)(j) + dxMyu2(i)(j)//d10
+      }
+      dMyu(j) = -1 * dMyu(j)
+    }
+
+    for(j<-0 until yoko){
+      for(i<-0 until tate)
+        dx2(i)(j) = dMyu(j)/tate//d9
+    }
+
+    for(i<-0 until tate ; j<-0 until yoko){
+      dx(i)(j) = dx1(i)(j) + dx2(i)(j)
+    }
+    dx
+  }
+
+
+  def update(){
+    adam_ganma.update(ganma,dganma)
+    adam_beta.update(beta,dbeta)
+
+    reset()
+  }
+
+  def reset(){
+    dganma = Array.ofDim[Double](yoko)
+    dbeta = Array.ofDim[Double](yoko)
+  }
+
+  def forward(x:Array[Double]) = {
+    x
+  }
+  def backward(d:Array[Double]) = {
+    d
+  }
+
 }
