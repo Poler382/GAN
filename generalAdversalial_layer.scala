@@ -4,17 +4,18 @@ object gan_Network{
     val g = mode match {
       case "0" =>{
         val a = new Affine (100,256)
-        val b = new BatchNormalization2(256)
+        val b = new BNsaki(256)
         val c = new ReLU()
         val d = new Affine(256,512)
-        val e = new BatchNormalization2(512)
+        val e = new BNsaki(512)
         val g = new ReLU()
         val h = new Affine(512,1024)
-        val i = new BatchNormalization2(1024)
+        val i = new BNsaki(1024)
         val j = new ReLU()
         val k = new Affine (1024,784)
         val l = new Tanh()
         List(a,b,c,d,e,g,h,i,j,k,l)
+       //  List(a,c,d,g,h,j,k,l)
       }
       case "00" =>{
         val a = new Affine (100,256)
@@ -74,6 +75,24 @@ object gan_Network{
     for(lay <- layers.reverse){d = lay.backward(d)}
     d
   }
+
+  def forwards(layers:List[Layer],x:Array[Array[Double]])={
+    var temp = x
+    for(lay <- layers){
+      temp =lay.forward(temp)
+    }
+    
+    temp
+  }
+
+  def backwards(layers:List[Layer],x:Array[Array[Double]])={
+    var d = x
+    for(lay <- layers.reverse){
+      d = lay.backward(d)
+    }
+    d
+  }
+
 
   def updates(layers:List[Layer])={
     for(lay <- layers){lay.update()}

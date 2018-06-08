@@ -1,8 +1,6 @@
 object GAN{
   val rand=new util.Random(0)
 
-    
-
   def main(args:Array[String]){
 
     val mode = args(0)
@@ -48,27 +46,24 @@ object GAN{
 
     var lossG = 0d
     var ys  = List[Array[Double]]()
-    for(i <- 0 until dn){
-      var z = new Array[Double](100)
-      z = z.map(_ * rand.nextGaussian * 0.1)
-
-      val y =  gan_Network.forwards(G,z)
-      val y2 =  gan_Network.forwards(D,y)
-      lossG += -math.log(y(0)+1e-8)
-      ys ::= y
-
-      val lgd = -1d/y(0)
-      
-      val d  = gan_Network.backwards(D,Array(lgd))//fix
-      gan_Network.backwards(G,d)
-
-
+    
+    var z = new Array[Array[Double]](100)
+    for(i <- 0 until 100){// make noise
+      val t = new Array[Double](100).map(_ => rand.nextGaussian * 0.1)
+      z(i) = t
     }
+
+    val y =  gan_Network.forwards(G,z)
+    val y2 =  gan_Network.forwards(D,y)
+    lossG = y2.map(a=> math.log((1d-a(0))+1e-8)).sum
+
+    val d  = gan_Network.backwards((G++D).reverse,y2.map(a=>a.map(b =>(-1d/b))))
+   
     gan_Network.updates(G)
     gan_Network.resets(D)
-   if(ln %100 == 0){
-     Image.write("GAN/train"+ln.toString+".png",Image.make_image3(ys.toArray,10,10,28,28))
-   }
+    if(ln %100 == 0){
+      Image.write("GAN/train"+ln.toString+".png",Image.make_image3(y.toArray,10,10,28,28))
+    }
 
     lossG
   }
@@ -78,48 +73,44 @@ object GAN{
     var lossD =0d
     var fake_counter  = 0
     var real_counter  = 0
-     
-    var z = new Array[Double](100)
-    for( (xs,n) <- rand.shuffle(dtrain.toList).take(dn/2)){
 
-      val y =  gan_Network.forwards(D,xs)
- 
-      
-      if(y(0) > 0.5){ //本物を見つける
-      
+    val xn = rand.shuffle(dtrain.toList).take(dn)
+    val xs = xn.map(_._1).toArray
+    val y =  gan_Network.forwards(D,xs)
+
+    for(i <- 0 until dn){
+      if(y(i)(0) > 0.5){ //本物を見つける
         real_counter += 1
-        println("real "+y(0)+" realcounter "+real_counter)
+        //println("real "+y(0)+" realcounter "+real_counter)
       }
-
-      lossD += -math.log(y(0)+1e-8)
-
-      val dld = -1d / y(0)
-
-      gan_Network.backwards(D,Array(dld))
-      
     }
+
+    lossD += y.map(a => Math.log( a(0) + 0.00000001)).sum
+
+    val d1 = gan_Network.backwards(D.reverse,y.map(a => a.map(b => -1d/b)))
+
     gan_Network.updates(D)
 
+    
+    var z = new Array[Array[Double]](dn)
+    for(i <- 0 until dn){
+     val z1 = new Array[Double](dn).map(_ => rand.nextGaussian * 0.1)
+      z(i) = z1
+    }
 
-    for(i <- 0 until dn/2){
-      var z = new Array[Double](100)
-      z = z.map(_ => rand.nextGaussian * 0.1)
+    val yy =  gan_Network.forwards(D, gan_Network.forwards(G,z))
 
-      val y =  gan_Network.forwards(D, gan_Network.forwards(G,z))
-      
-     
-      if(y(0) < 0.5){//偽者を見破る
+    for(i <- 0 until dn){
+      if(yy(i)(0) < 0.5){//偽者を見破る
         fake_counter +=1
       }
-      println("fake "+y(0)+" fakecounter "+fake_counter)
-      
-      lossD += -math.log(1d - y(0)+1e-8)
-
-      val dld =  -1d/y(0)
-      gan_Network.backwards(D,Array(dld))//fix
     }
+ 
+    lossD += yy.map(a => Math.log( a(0) + 0.00000001)).sum
+
+    val d2 = gan_Network.backwards(D.reverse,yy.map(a => a.map(b => -1d/b)))
+
     gan_Network.updates(D)
-    
 
     (lossD,real_counter.toDouble,fake_counter.toDouble)
 
