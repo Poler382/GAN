@@ -184,35 +184,6 @@ class ReLU() extends Layer {
 
 }
 
-class LeakyReLU() extends Layer{
-  var ys = List[Array[Double]]()
-  def push(y:Array[Double]) = { ys ::= y; y }
-  def pop() = { val y = ys.head; ys = ys.tail; y }
-
-  def forward(x:Array[Double]) = {
-    var returny = new Array[Double](x.size)
-    for(i <- 0 until x.size){
-      if(x(i) > 0){ 
-        returny(i) = x(i) 
-      }else{
-        returny(i) = x(i)*0.2
-      }
-    }
-    push(returny)
-  }
-
-  def backward(d:Array[Double]) = {
-    val y = pop()
-    (0 until d.size).map(i => if(y(i) > 0) d(i) else d(i)*0.2).toArray
-  }
-
-  def update() {reset()}
-  def reset() {ys = List[Array[Double]]()}
-
-  override def save(fn:String){}
-  override def load(fn:String){}
-}
-
 
 
 class Tanh() extends Layer{
@@ -707,137 +678,6 @@ object Image {
 
 }
 
-//Array version
-//n個データがきたら更新する
-//D:各データの個数　データ数n
-class BatchNormalization3(val D:Int,val n: Int) extends Layer{
-  var xn = D
-  var gamma   = new Array[Double](D).map(_ => 1d)
-  var beta    = new Array[Double](D).map(_ => 0d)
-  var d_beta  = new Array[Double](D).map(_ => 0d)
-  var d_gamma = new Array[Double](D).map(_ => 0d)
-  var mu      = new Array[Double](D).map(_ => 0d)
-  var eps     = 0.00000001
-  var sigma   = new Array[Double](D).map(_ => 0d)
-  var x_h     = new Array[Array[Double]](D).map(_.map(_ => 0d))
-  var x_m     = new Array[Array[Double]](D).map(_.map(_ => 0d))
-  var xmu     = new Array[Array[Double]](D).map(_.map(_ => 0d))
-  var dg      = new Array[Double](xn)
-  var db      = new Array[Double](xn)
-  var count   = 0
-
-  def forward(xs:Array[Double])=xs
-  def backward(xs:Array[Double])=xs
-
-  override def forward(xs:Array[Array[Double]] )={
-    var y = new Array[Array[Double]](xs.size)
-
-    for(i <- 0 until xs.size){
-      for (j <- 0 until xn){
-        mu(j)+=xs(i)(j)/xs.size
-      }
-    }
-
-    x_m = new Array[Array[Double]](xs.size)
-    
-    for(i <- 0 until xs.size){
-      x_m(i)=new Array[Double](xn).map(_ => 0d)
-      for(j <- 0 until xn){
-        x_m(i)(j) = xs(i)(j) - mu(j)
-  
-        sigma(j) += x_m(i)(j)* x_m(i)(j)/xs.size
-      }
-    }
-
-    x_h = new Array[Array[Double]](xs.size).map(_.map(_ => 0d))
-    for(i <- 0 until xs.size){
-      y(i)   = new Array[Double](xn).map(_ => 0d)
-      x_h(i) = new Array[Double](xn).map(_ => 0d)
-      for (j <- 0 until xn){
-        x_h(i)(j)= (x_m(i)(j))/math.sqrt(sigma(j)+eps)
-        y(i)(j)=gamma(j)*x_h(i)(j)+beta(j)
-      }
-    }
-    y
-  }
-
-
-
-  //たてよこの行列を潰して各データのsumに変える
-  def sumMatrix(in:Array[Array[Double]])={
-    var m  = new Array[Double](D)
-    for(j <- 0 until D){
-      for(i <- 0 until n){
-        m(j) += in(i)(j)
-      }
-    }
-    m
-  }
-
-  override def backward(d:Array[Array[Double]])={
-
-    var d_beta = sumMatrix(d)
-    var dx = new Array[Array[Double]](n)
-  
-    for(i <- 0 until n){
-      dx(i) = new Array[Double](D).map(_ => 0d)
-    }
-
-    for(j <- 0 until D){
-      for(i <- 0 until n){
-        d_gamma(j) += d(i)(j) * x_h(i)(j)
-      }
-    }
-
-    //各次元ごとに計算
-    for(j <- 0 until D ){
-      var d2 = 0d
-      var d1 = new Array[Double](n)
-      for(i <- 0 until n ){
-        d1(i) = gamma(j) * d(i)(j)
-        d2 += x_m(i)(j) *d1(i)
-      }
-      
-      var d3 = - d2 / (sigma(j)+eps) 
-      var d4 = d3 / (2*sqrt(sigma(j)+eps))
-
-      var d8 = 0d
-      var d6 = new Array[Double](n)
-      var d7 = new Array[Double](n)
-     
-      for(i <- 0 until n){
-        var d5 = 1 / n.toDouble *d4
-        d6(i) = 2 * x_m(i)(j) * d5
-        d7(i) = d1(i) * 1/sqrt(sigma(j)+eps)
-        d8 -= d6(i) + d7(i)
-      }
-      for(i <- 0 until n){
-        var d9 = 1 / n.toDouble * d8
-        var d10 = d6(i)+d7(i)
-        dx(i)(j) = d9 + d10
-      }
-
-    }
-    dx
-  }
-  var adam_b = new Adam_D(xn)
-  var adam_g = new Adam_D(xn)
-  def update(){
-    adam_b.update(beta,d_beta,n)
-    adam_g.update(gamma,d_gamma,n)
-    reset()
-  }
-  def reset(){
-    db = new Array[Double](xn)
-    dg = new Array[Double](xn)
-    count=0
-  }
-
-  override def save(fn:String){}
-  override def load(fn:String){}
-
-}
-
 class BNsaki(val xn:Int) extends Layer {
   val epsilon=10E-8
   var beta = Array.ofDim[Double](xn)
@@ -850,6 +690,11 @@ class BNsaki(val xn:Int) extends Layer {
   var dg =  Array.ofDim[Double](xn)
   var db =  Array.ofDim[Double](xn)
   var count=0
+
+
+  def forward(xs:Array[Double]) = xs
+  def backward(xs:Array[Double])= xs
+
   override def forward(xs:Array[Array[Double]])={
     var y = new Array[Array[Double]](xs.size)
  
@@ -878,8 +723,6 @@ class BNsaki(val xn:Int) extends Layer {
     y
   }
 
-  def forward(xs:Array[Double])=xs
-  def backward(xs:Array[Double])=xs
   override def backward(ds:Array[Array[Double]])={
     var dx = new Array[Array[Double]](ds.size)
     var d1 = new Array[Array[Double]](ds.size)
@@ -980,6 +823,84 @@ class Adam_D(val n:Int) {
       val d = (s(i) * rho1tr) / (math.sqrt(r(i) * rho2tr) + delta)
       K(i) = K(i) - eps/count * d
     }
+  }
+}
+
+
+class LeakyReLU(val alpha:Double) extends Layer {
+  var ys = List[Array[Double]]()
+  def push(y:Array[Double]) = { ys ::= y; y }
+  def pop() = { val y = ys.head; ys = ys.tail; y }
+
+  def forward(x:Array[Double]) = {
+    push(x.map(a => if(a > 0) a else alpha * a))
+  }
+
+  def backward(d:Array[Double]) = {
+    val y = pop()
+      (0 until d.size).map(i => if(y(i) > 0) d(i) else alpha * d(i)).toArray
+  }
+
+  def update() {
+    reset()
+  }
+
+  def reset() {
+    ys = List[Array[Double]]()
+  }
+
+  override def save(fn:String){}
+  override def load(fn:String){}
+
+}
+
+
+class Adam(val n:Int, val eps:Double = 0.001, val rho1:Double  = 0.9, val rho2:Double  = 0.999) {
+  val delta = 1e-8
+  var rho1t = 1d
+  var rho2t = 1d
+  var s = Array.ofDim[Double](n)
+  var r = Array.ofDim[Double](n)
+
+  def update(K:Array[Double], dK:Array[Double]) = {
+    var nK = Array.ofDim[Double](K.size)
+    rho1t *= rho1
+    rho2t *= rho2
+    val rho1tr = 1 / (1 - rho1t)
+    val rho2tr = 1 / (1 - rho2t)
+    for(i <- 0 until K.size) {
+      s(i) = rho1 * s(i) + (1 - rho1) * dK(i)
+      r(i) = rho2 * r(i) + (1 - rho2) * dK(i) * dK(i)
+      val d = (s(i) * rho1tr) / (math.sqrt(r(i) * rho2tr) + delta)
+      K(i) = K(i) - eps * d
+    }
+  }
+}
+
+class Softplus() extends Layer {
+  var ys = List[Array[Double]]()
+  def push(y:Array[Double]) = { ys ::= y; y }
+  def pop() = { val y = ys.head; ys = ys.tail; y }
+
+  def softplus(x:Double) = x + math.log(1d + math.exp(-x))
+  def sigmoid(x:Double) = 1 / (1d + math.exp(-x))
+
+  def forward(x:Array[Double]) = {
+    push(x)
+    x.map(softplus)
+  }
+
+  def backward(d:Array[Double]) = {
+    val x = pop()
+      (0 until d.size).map(i => d(i) * sigmoid(x(i))).toArray
+  }
+
+  def update() {
+    reset()
+  }
+
+  def reset() {
+    ys = List[Array[Double]]()
   }
 }
 

@@ -1,5 +1,6 @@
 object GAN{
   val rand=new util.Random(0)
+  val namelist =List("lossG","lossD","real rate","fake rate")
 
   def main(args:Array[String]){
 
@@ -26,11 +27,11 @@ object GAN{
     val D = gan_Network.select_D(mode)
 
     println("learning start")
-    val namelist =List("lossG","lossD","real rate","fake rate") 
-
+  
     for(i <- 0 until ln){
       val start = System.currentTimeMillis
       val (lossD,counter1,counter2)= learning_D(where,i,dn,G,D,dtrain)
+      
       val lossG = learning_G(where,i,dn,G,D)
       val time =  System.currentTimeMillis - start
       
@@ -74,21 +75,21 @@ object GAN{
     var fake_counter  = 0
     var real_counter  = 0
 
+    println("1111")
     val xn = rand.shuffle(dtrain.toList).take(dn)
     val xs = xn.map(_._1).toArray
     val y =  gan_Network.forwards(D,xs)
-
     for(i <- 0 until dn){
       if(y(i)(0) > 0.5){ //本物を見つける
         real_counter += 1
         //println("real "+y(0)+" realcounter "+real_counter)
       }
     }
-
     lossD += y.map(a => Math.log( a(0) + 0.00000001)).sum
 
-    val d1 = gan_Network.backwards(D.reverse,y.map(a => a.map(b => -1d/b)))
 
+    val d1 = gan_Network.backwards(D,y.map(a => a.map(b => -1d/b)))
+     println("444444")
     gan_Network.updates(D)
 
     
@@ -108,7 +109,7 @@ object GAN{
  
     lossD += yy.map(a => Math.log( a(0) + 0.00000001)).sum
 
-    val d2 = gan_Network.backwards(D.reverse,yy.map(a => a.map(b => -1d/b)))
+    val d2 = gan_Network.backwards(D,yy.map(a => a.map(b => -1d/b)))
 
     gan_Network.updates(D)
 
