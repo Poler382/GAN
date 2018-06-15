@@ -38,16 +38,39 @@ object learning{
      time:Double,
      namelist:List[String],
      outlist:List[Double],
-     sp:Int){
+     sp:Int)={
      var printdata = "result:"+num.toString+" - time:"+(time/1000d).toString+"\n"
 
      for(i <- 0 until outlist.size){
        printdata += namelist(i)+":"+outlist(i).toString+"/"
-       if(i == sp || i == outlist.size){printdata += "\n"}
+       if((i+1) % sp == 0 && i!= 0  ){printdata += "\n"}
      }
 
      println(printdata)
 
+     printdata
    }
+
+def savetxt1(list:List[Double],fn:String,path:String){
+    val pathName = "GAN/"+path+"/"+fn+".txt"
+    val writer =  new java.io.PrintWriter(pathName)
+    val ys1 = list.reverse.mkString(",") + "\n"
+    writer.write(ys1)
+    writer.close()
+    println("success "+fn)
+
+  }
+
+  def savetxt2(list:List[String],fn:String,path:String){
+    val pathName = "GAN/"+path+"/"+fn+".txt"
+    val writer =  new java.io.PrintWriter(pathName)
+    val ys1 = list.reverse.mkString(",") + "\n"
+    writer.write(ys1)
+    writer.close()
+    println("success "+fn)
+
+  }
+
+
 
 }

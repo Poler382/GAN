@@ -2,264 +2,244 @@ import math._
 import breeze.linalg._
 
 /*
-affine
-ReLU
-LeakyLeLU
-tanh
+****************************************************************
+
+convolution
+unsumpling
+stridPanding
+subsumpling
+pooling
+Affine
 Sigmoid
-Pooling
-Convolution
-BacthNormalization 未完成　arrayVerを作る
-AdamDM
-AdamDV
-object Image 
-BacthNormalization3 Array.ver
-*/
+Tanh
+Dropout
+ReLU
+LeakyReLU
+ZeroPadding
+Adam
+softPlus
+BNa
+
+
+ */
 
 abstract class Layer {
-  def forward(x:Array[Double]) : Array[Double]
-  def forward(x:Array[Array[Double]]) : Array[Array[Double]]={
-    var xs=new Array[Array[Double]](x.size)
-    for(i <- 0 until x.size){
-      xs(i)=forward(x(i))
-    }
-    xs
+  type T = Double
+  var is_test = false
+  def forward(x:Array[T]) : Array[T]
+  def backward(x:Array[T]) : Array[T]
+  def forward(xs:Array[Array[T]]) : Array[Array[T]] = {
+    xs.map(forward)
   }
-  def backward(x:Array[Double]) : Array[Double]
-  def backward(x:Array[Array[Double]]) :Array[Array[Double]]={
-    var xs=new Array[Array[Double]](x.size)
-    for(i <- x.size-1 to 0 by -1){
-      xs(i)=backward(x(i))
-    }
-    xs
+  def backward(ds:Array[Array[T]]) : Array[Array[T]] = {
+    ds.reverse.map(backward).reverse
   }
   def update() : Unit
   def reset() : Unit
-  def load(fn:String) {}
   def save(fn:String) {}
+  def load(fn:String) {}
 }
 
+class Convolution(
+  val KW:Int,
+  val IH:Int,
+  val IW:Int,
+  val IC:Int,
+  val OC:Int,
+  val eps:Double = 0.001,
+  val rho1:Double = 0.9,
+  val rho2:Double = 0.999
+  ) extends Layer {
+  val OH = IH - KW + 1
+  val OW = IW - KW + 1
+  var Vs = List[Array[T]]()
+  var K = Array.ofDim[T](OC * IC * KW * KW)
+  var n = 0
 
-class Affine(val xn:Int, val yn:Int) extends Layer{
-  val rand = new scala.util.Random(0)
-  var W = DenseMatrix.zeros[Double](yn,xn).map(_ => rand.nextGaussian*0.01)
-  for(i <- 0 until yn;j <- 0 until xn){
-    W(i,j)=rand.nextGaussian*0.01
-  }
-  var b = DenseVector.zeros[Double](yn)
-  var dW = DenseMatrix.zeros[Double](yn,xn)
-  var db = DenseVector.zeros[Double](yn)
-  var xs = List[Array[Double]]()
-  var t=0
-  def push(x:Array[Double]) = { xs ::= x; x }
-  def pop() = { val x = xs.head; xs = xs.tail; x }
-
-  def forward(x:Array[Double]) = {
-    push(x)
-    val xv = DenseVector(x)
-    val y = W * xv + b
-    y.toArray
-  }
-
-  def backward(d:Array[Double]) = {
-    val x = pop()
-    val dv = DenseVector(d)
-    val X = DenseVector(x)
-    // dW,dbを計算する ★
-    dW += dv * X.t
-    db += dv
-    var dx = DenseVector.zeros[Double](xn)
-    // dxを計算する ★
-    dx = W.t * dv
-    dx.toArray
-  }
-  var rt1=1d
-  var rt2=1d
-  var sW = DenseMatrix.zeros[Double](yn,xn)
-  var rW = DenseMatrix.zeros[Double](yn,xn)
-  var sb =  DenseVector.zeros[Double](yn)
-  var rb =  DenseVector.zeros[Double](yn)
-
-  def update() {
-    // W,bを更新する ★
-    val epsilon = 0.001
-    val rho1=0.9
-    val rho2=0.999
-    val delta=0.000000001
-    var d_tW =DenseMatrix.zeros[Double](yn,xn)
-   
-    var s_hW = DenseMatrix.zeros[Double](yn,xn)
-    var r_hW = DenseMatrix.zeros[Double](yn,xn)
-
-    var d_tb = DenseVector.zeros[Double](yn)
-    var s_hb =  DenseVector.zeros[Double](yn)
-    var r_hb =  DenseVector.zeros[Double](yn)
-
-    rt1=rt1*rho1
-    rt2=rt2*rho2
-    t=t+1
-   
-    for(i <- 0 until yn){
-      sb(i) = rho1*sb(i)+ (1 - rho1)*db(i)
-      rb(i) = rho2*rb(i) + (1 - rho2)*db(i)*db(i)
-      s_hb(i) = sb(i)/(1-rt1)
-      r_hb(i) = rb(i)/(1-rt2)
-      d_tb(i) = - epsilon * (s_hb(i)/(Math.sqrt(r_hb(i))+delta))
-      b(i) = b(i) + d_tb(i)
-      for(j <- 0 until xn){
-        sW(i,j) =  rho1*sW(i,j) + (1 - rho1)*dW(i,j)
-        rW(i,j) =  rho2*rW(i,j) + (1 - rho2)*dW(i,j)*dW(i,j)
-        s_hW(i,j) = sW(i,j)/(1-rt1)
-        r_hW(i,j) = rW(i,j)/(1-rt2)
-        d_tW(i,j) = - epsilon * (s_hW(i,j) /(Math.sqrt(r_hW(i,j))+delta))
-        W(i,j) = W(i,j) + d_tW(i,j)
+  def iindex(i:Int, j:Int, k:Int) = i * IH * IW + j * IW + k
+  def oindex(i:Int, j:Int, k:Int) = i * OH * OW + j * OW + k
+  def kindex(i:Int, j:Int, k:Int, l:Int) = i * IC * KW * KW + j * KW * KW + k * KW + l
+  def forward(V:Array[T]) = {
+    Vs ::= V
+    val Z = Array.ofDim[T](OC * OH * OW)
+    for(i <- 0 until OC; j <- 0 until OH; k <- 0 until OW) {
+      for(l <- 0 until IC; m <- 0 until KW; n <- 0 until KW) {
+        Z(oindex(i,j,k)) += V(iindex(l,j+m,k+n)) * K(kindex(i,l,m,n))
       }
     }
-       reset()
-  }
-  def update_sgd(){
-    val lr=0.01
-    W -= lr * dW
-    b -= lr * db
-    reset()
-  }
-  def reset() {
-    dW = DenseMatrix.zeros[Double](yn,xn)
-    db = DenseVector.zeros[Double](yn)
-    xs = List[Array[Double]]()
+    Z
   }
 
- 
-  override def load(fn:String) {
-    println(fn)
-    val f =scala.io.Source.fromFile(fn).getLines.map(_.split(",").map(_.toDouble).toArray).toArray
-    for(i <- 0 until yn; j <- 0 until xn){
-      W(i,j)=f(0)(i*xn+j)
+  var dK = Array.ofDim[T](K.size)
+  def backward(G:Array[T]) = {
+    n += 1
+    val V = Vs.head
+    Vs = Vs.tail
+
+    for(i <- 0 until OC; j <- 0 until IC; k <- 0 until KW; l <- 0 until KW) {
+      for(m <- 0 until OH; n <- 0 until OW) {
+        dK(kindex(i,j,k,l)) += V(iindex(j,m+k,n+l)) * G(oindex(i,m,n))
+      }
     }
-    for(i <- 0 until yn){
-      b(i)=f(1)(i)
+
+    val D = Array.ofDim[T](V.size)
+    for(i <- 0 until IC; j <- 0 until IH; k <- 0 until IW) {
+      for(l <- 0 until OH; m <- 0 until KW if l + m == j) {
+        for(n <- 0 until OW; p <- 0 until KW if n + p == k) {
+          for(q <- 0 until OC) {
+            D(iindex(i,j,k)) += K(kindex(q,i,m,p)) * G(oindex(q,l,n))
+          }
+        }
+      }
+    }
+
+    D
+  }
+
+  def update() {
+    for(i <- 0 until dK.size) {
+      dK(i) /= n
+    }
+    update_adam()
+    reset()
+  }
+
+  var lr = 0.001
+  def update_sgd() {
+    for(i <- 0 until K.size) {
+      K(i) -= lr * dK(i)
     }
   }
+
+  var adam = new Adam(K.size,eps,rho1,rho2)
+  def update_adam() {
+    adam.update(K,dK)
+  }
+
+  def reset() {
+    Vs = List()
+    for(i <- 0 until dK.size) {
+      dK(i) = 0d
+    }
+    n = 0
+  }
+
   override def save(fn:String) {
-    val file=new java.io.PrintWriter(fn)
-    for(i <- 0 until yn; j <- 0 until xn){
-      if(i == yn-1 && j== xn-1){
-        file.print(W(i,j))
-      }
-      else{
-        file.print(W(i,j)+",")
+    val pw = new java.io.PrintWriter(fn)
+    for(i <- 0 until K.size) {
+      pw.write(K(i).toString)
+      if(i != K.size - 1) {
+        pw.write(",")
       }
     }
-    file.println()
-    for(i <- 0 until yn){
-      if(i == yn-1){file.print(b(i))}
-      else{
-        file.print(b(i)+",")
-      }
-    }
-    file.close
+    pw.write("\n")
+    pw.close()
+  }
+
+  override def load(fn:String) {
+    val f = scala.io.Source.fromFile(fn).getLines.toArray
+    K = f(0).split(",").map(_.toDouble).toArray
   }
 }
 
-
-class ReLU() extends Layer {
-  var ys = List[Array[Double]]()
-  def push(y:Array[Double]) = { ys ::= y; y }
-  def pop() = { val y = ys.head; ys = ys.tail; y }
-
-  def forward(x:Array[Double]) = {
-    push(x.map(a => math.max(a,0)))
-  }
-
-  def backward(d:Array[Double]) = {
-    val y = pop()
-    (0 until d.size).map(i => if(y(i) > 0) d(i) else 0d).toArray
-  }
-
-  def update() {reset()}
-  def reset() {ys = List[Array[Double]]()}
-
-  override def save(fn:String){}
-  override def load(fn:String){}
-
-}
-
-
-
-class Tanh() extends Layer{
-  var ys = List[DenseVector[Double]]()
-  def tanh(x:Double) = (math.exp(x)-math.exp(-x))/(math.exp(x)+math.exp(-x))
-  def forward(xx:Array[Double]) = {
-    val x = DenseVector(xx)
-    ys ::= x.map(tanh)
-    ys.head.toArray
-  }
-
-  def backward(d:Array[Double]) = {
-    val y = ys.head
-    ys = ys.tail
-    val ds =DenseVector(d)
-    val r = ds *:* (1d - y*y)
-    r.toArray
-  }
-
-  def update() {
-    reset()
-  }
-
-  def reset() {
-    ys = List[DenseVector[Double]]()
-  }
-  override def save(fn:String){}
-  override def load(fn:String){}
-
-}
-
-class Sigmoid() extends Layer{
-  var ys = List[DenseVector[Double]]()
-  def sigmoid(x:Double) = 1 / (1 + math.exp(-x))
-  def forward(xx:Array[Double]) = {
-    val x = DenseVector(xx)
-    ys ::= x.map(sigmoid)
-    ys.head.toArray
-  }
-
-  def backward(d:Array[Double]) = {
-    val ds = DenseVector(d)
-
-    val y = ys.head
-    ys = ys.tail
-    val r =ds *:* y *:* (1d - y)
-  
-    r.toArray
-  }
-  def update()={
-    reset()
-  }
-  def reset()={
-    ys = List[DenseVector[Double]]()
-  }
-
- 
- override def save(fn:String){}
- override def load(fn:String){}
-
-}
-
-class Pooling(val BW:Int, val IC:Int, val IH:Int, val IW:Int) extends Layer{
-  val OH = IH / BW
-  val OW = IW / BW
+class Upsampling(val IC:Int, val IH:Int, val IW:Int, val BH:Int, val BW:Int) extends Layer {
+  val OH = IH * BH
+  val OW = IW * BW
   val OC = IC
-  var masks = List[Array[Double]]()
-  def push(x:Array[Double]) = { masks ::= x; x }
-  def pop() = { val mask = masks.head; masks = masks.tail; mask }
 
   def iindex(i:Int, j:Int, k:Int) = i * IH * IW + j * IW + k
   def oindex(i:Int, j:Int, k:Int) = i * OH * OW + j * OW + k
   
-  def forward(X:Array[Double]) = {
-    val mask = push(Array.ofDim[Double](IC * IH * IW))
-    val Z = Array.ofDim[Double](OC * OH * OW)
+  def forward(X:Array[T]) = {
+    val Z = Array.ofDim[T](OC * OH * OW)
+    for(i <- 0 until OC; j <- 0 until OH; k <- 0 until OW) {
+      Z(oindex(i,j,k)) = X(iindex(i,j/BH,k/BW))
+    }
+    Z
+  }
+
+  def backward(d:Array[T]) = {
+    val D = Array.ofDim[T](IC * IH * IW)
+    for(i <- 0 until OC; j <- 0 until OH; k <- 0 until OW) {
+        D(iindex(i,j/BH,k/BW)) += d(oindex(i,j,k))
+    }
+    D
+  }
+
+  def update() {}
+  def reset() {}
+}
+
+class StridedPadding(val IC:Int, val IH:Int, val IW:Int, val S:Int) extends Layer {
+  val OH = S * IH + S - 1
+  val OW = S * IW + S - 1
+  val OC = IC
+
+  def iindex(i:Int, j:Int, k:Int) = i * IH * IW + j * IW + k
+  def oindex(i:Int, j:Int, k:Int) = i * OH * OW + j * OW + k
+  
+  def forward(X:Array[T]) = {
+    val Z = Array.ofDim[T](OC * OH * OW)
+    for(i <- 0 until IC; j <- 0 until IH; k <- 0 until IW) {
+      Z(oindex(i,S-1+j*S,S-1+k*S)) = X(iindex(i,j,k))
+    }
+    Z
+  }
+
+  def backward(d:Array[T]) = {
+    val D = Array.ofDim[T](IC * IH * IW)
+    for(i <- 0 until IC; j <- 0 until IH; k <- 0 until IW) {
+        D(iindex(i,j,k)) = d(oindex(i,S-1+j*S,S-1+k*S))
+    }
+    D
+  }
+
+  def update() {}
+  def reset() {}
+}
+
+class Subsampling(val IC:Int, val IH:Int, val IW:Int, val BH:Int, val BW:Int) extends Layer {
+  val OH = IH / BH
+  val OW = IW / BW
+  val OC = IC
+
+  def iindex(i:Int, j:Int, k:Int) = i * IH * IW + j * IW + k
+  def oindex(i:Int, j:Int, k:Int) = i * OH * OW + j * OW + k
+  
+  def forward(X:Array[T]) = {
+    val Z = Array.ofDim[T](OC * OH * OW)
+    for(i <- 0 until OC; j <- 0 until OH; k <- 0 until OW) {
+      Z(oindex(i,j,k)) = X(iindex(i,j*BH,k*BW))
+    }
+    Z
+  }
+
+  def backward(d:Array[T]) = {
+    val D = Array.ofDim[T](IC * IH * IW)
+    for(i <- 0 until OC; j <- 0 until OH; k <- 0 until OW) {
+        D(iindex(i,j*BH,k*BW)) += d(oindex(i,j,k))
+    }
+    D
+  }
+
+  def update() {}
+  def reset() {}
+}
+
+class Pooling(val BW:Int, val IC:Int, val IH:Int, val IW:Int) extends Layer {
+  val OH = IH / BW
+  val OW = IW / BW
+  val OC = IC
+  var masks = List[Array[T]]()
+  def push(x:Array[T]) = { masks ::= x; x }
+  def pop() = { val mask = masks.head; masks = masks.tail; mask }
+
+  def iindex(i:Int, j:Int, k:Int) = i * IH * IW + j * IW + k
+  def oindex(i:Int, j:Int, k:Int) = i * OH * OW + j * OW + k
+
+  def forward(X:Array[T]) = {
+    val mask = push(Array.ofDim[T](IC * IH * IW))
+    val Z = Array.ofDim[T](OC * OH * OW)
     for(i <- 0 until OC; j <- 0 until OH; k <- 0 until OW) {
       var v = Double.NegativeInfinity
       var row_max = -1
@@ -275,9 +255,9 @@ class Pooling(val BW:Int, val IC:Int, val IH:Int, val IW:Int) extends Layer{
     Z
   }
 
-  def backward(d:Array[Double]) = {
+  def backward(d:Array[T]) = {
     val mask = pop()
-    val D = Array.ofDim[Double](mask.size)
+    val D = Array.ofDim[T](mask.size)
     for(i <- 0 until OC; j <- 0 until OH; k <- 0 until OW) {
       for(m <- 0 until BW; n <- 0 until BW if mask(iindex(i,j*BW+m,k*BW+n)) == 1) {
         D(iindex(i,j*BW+m,k*BW+n)) = d(oindex(i,j,k))
@@ -286,292 +266,293 @@ class Pooling(val BW:Int, val IC:Int, val IH:Int, val IW:Int) extends Layer{
     D
   }
 
+  def update() {}
+  def reset() {
+    masks = List[Array[T]]()
+  }
+}
+
+class Affine(val xn:Int, val yn:Int, val eps:Double = 0.001, val rho1:Double = 0.9, val rho2:Double = 0.999) extends Layer {
+  val rand = new scala.util.Random(0)
+
+  var W = Array.ofDim[T](xn * yn).map(_ => rand.nextGaussian * 0.01)
+  var b = Array.ofDim[T](yn)
+  var dW = Array.ofDim[T](xn * yn)
+  var db = Array.ofDim[T](yn)
+  var n = 0
+
+
+  def windex(i:Int, j:Int) = i * xn + j
+
+  var xs = List[Array[T]]()
+  def push(x:Array[T]) = { xs ::= x; x }
+  def pop() = { val x = xs.head; xs = xs.tail; x }
+
+  def forward(x:Array[T]) = {
+    push(x)
+    val y = Array.ofDim[T](yn)
+    for(i <- 0 until yn) {
+      for(j <- 0 until xn) {
+        y(i) += W(windex(i,j)) * x(j)
+      }
+      y(i) += b(i)
+    }
+    y
+  }
+
+  def backward(d:Array[T]) = {
+    val x = pop()
+    n += 1
+
+    for(i <- 0 until yn; j <- 0 until xn) {
+      dW(windex(i,j)) += d(i) * x(j)
+    }
+
+    for(i <- 0 until yn) {
+      db(i) += d(i)
+    }
+
+    val dx = Array.ofDim[T](xn)
+    for(j <- 0 until yn; i <- 0 until xn) {
+      dx(i) += W(windex(j,i)) * d(j)
+    }
+
+    dx
+  }
+
+  def update() {
+    for(i <- 0 until dW.size) {
+      dW(i) /= n
+    }
+    for(i <- 0 until db.size) {
+      db(i) /= n
+    }
+    update_adam()
+    reset()
+  }
+
+  var adam_W = new Adam(W.size, eps, rho1, rho2)
+  var adam_b = new Adam(b.size, eps, rho1, rho2)
+  def update_adam() {
+    adam_W.update(W,dW)
+    adam_b.update(b,db)
+  }
+
+  var lr = 0.001
+  def update_sgd() {
+    for(i <- 0 until W.size) {
+      W(i) -= lr * dW(i)
+    }
+
+    for(i <- 0 until b.size) {
+      b(i) -= lr * db(i)
+    }
+  }
+
+  def reset() {
+    for(i <- 0 until dW.size) {
+      dW(i) = 0d
+    }
+    for(i <- 0 until db.size) {
+      db(i) = 0d
+    }
+    xs = List[Array[T]]()
+    n = 0
+  }
+
+  override def save(fn:String) {
+    val pw = new java.io.PrintWriter(fn)
+    for(i <- 0 until W.size) {
+      pw.write(W(i).toString)
+      if(i != W.size - 1) {
+        pw.write(",")
+      }
+    }
+    pw.write("\n")
+    for(i <- 0 until b.size) {
+      pw.write(b(i).toString)
+      if(i != b.size - 1) {
+        pw.write(",")
+      }
+    }
+    pw.write("\n")
+    pw.close()
+  }
+
+  override def load(fn:String) {
+    val f = scala.io.Source.fromFile(fn).getLines.toArray
+    W = f(0).split(",").map(_.toDouble).toArray
+    b = f(1).split(",").map(_.toDouble).toArray
+  }
+}
+
+class Sigmoid() extends Layer {
+  var ys = List[Array[T]]()
+  def push(y:Array[T]) = { ys ::= y; y }
+  def pop() = { val y = ys.head; ys = ys.tail; y }
+
+  def sigmoid(x:Double) = 1 / (1 + math.exp(-x))
+
+  def forward(x:Array[T]) = {
+    push(x.map(sigmoid))
+  }
+
+  def backward(d:Array[T]) = {
+    val y = pop()
+    (0 until d.size).map(i => d(i) * y(i) * (1d - y(i))).toArray
+  }
+
   def update() {
     reset()
   }
 
   def reset() {
-    masks = List[Array[Double]]()
+    ys = List[Array[T]]()
   }
-
-  override def save(fn:String){}
-  override def load(fn:String){}
 }
 
+class Tanh() extends Layer {
+  var ys = List[Array[T]]()
+  def push(y:Array[T]) = { ys ::= y; y }
+  def pop() = { val y = ys.head; ys = ys.tail; y }
 
-class Convolution(
-  val I:Int, //入力チャネル数
-  val H:Int, //入力の高さ
-  val W:Int, //入力の幅
-  val O:Int, //出力チャネル数
-  val kw:Int //カーネルの幅
-) extends Layer {
-  val rand = new scala.util.Random(0)
-  var K=Array.ofDim[Double](O,I,kw*kw).map(_.map(_.map(a => rand.nextGaussian*0.01)))
-  var t=0
-  var V2=Array[Double]()
-  val w_d=W-kw+1
-  val h_d=H-kw+1
-  var d_k=Array.ofDim[Double](O,I,kw*kw)
-
-  def vind(i:Int,j:Int,k:Int)=i*H*W+j*W+k
-  def zind(i:Int,j:Int,k:Int)=i*(H-kw+1)*(W-kw+1)+j*(W-kw+1)+k
-
-   override def save(fn:String){
-    val save = new java.io.PrintWriter("biasdata/"+fn+"-"+I.toString+H.toString+O.toString+W.toString+kw.toString+"Conv.txt")
-    for(i<-0 until O ; j<-0 until I;k <- 0 until kw*kw){
-      save.println(K(i)(j)(k))
-    }
-    save.close
+  def forward(x:Array[T]) = {
+    push(x.map(math.tanh))
   }
 
-   override def load(fn:String){
-    val f = scala.io.Source.fromFile("biasdata"+fn+"-"+I.toString+H.toString+O.toString+W.toString+kw.toString+"Conv.txt").getLines.toArray
-    for(i<-0 until O ; j<-0 until I ; k<-0 until kw* kw){
-      K(i)(j)(k) = f(i*I*kw*kw + j*kw*kw + k*kw ).toDouble
-    }
+  def backward(d:Array[T]) = {
+    val y = pop()
+    (0 until d.size).map(i => d(i) * (1d - y(i) * y(i))).toArray
   }
 
-
-
-  def forward(V:Array[Double])={
-    V2=V
-    val Z=Array.ofDim[Double](O*h_d*w_d)
-    for(i <- 0 until O ; j <- 0 until h_d; k <- 0 until w_d){
-      var s=0d
-      for(l <- 0 until I ; m <- 0 until kw ; n <- 0 until  kw){
-        s += V(vind(l,j+m,k+n))*K(i)(l)(m*kw+n)
-      }
-      Z(zind(i,j,k))=s
-    }
-    Z
-  }
-
-  def backward(G:Array[Double])={
-    var d_v=Array.ofDim[Double](I*H*W)
-    for(i <- 0 until O ;j <- 0 until I ;k <- 0 until kw;l <- 0 until kw){
-      var s_k=0d
-      for(m <- 0 until h_d; n <- 0 until w_d){
-        s_k += G(zind(i,m,n))*V2(vind(j,m+k,n+l))
-      }
-      d_k(i)(j)(k * kw + l)=s_k
-    }
-    for(i <- 0 until I;j <- 0 until H;k <- 0 until W){
-      var s_v=0d
-      for(l <- 0 until h_d;m <- 0 until kw if l+m == j){
-        for(n <- 0 until w_d;p <- 0 until kw if n+p ==k){
-          for(q <- 0 until O){
-            s_v += K(q)(i)(m*kw+p)*G(zind(q,l,n))
-          }
-        }
-        d_v(vind(i,j,k))=s_v
-      }
-    }
-    d_v
-  }
-  var rt1=1d
-  var rt2=1d
-  var s=Array.ofDim[Double](O,I,kw*kw)
-  var r=Array.ofDim[Double](O,I,kw*kw)
-  
-  def update()={
-    val epsilon = 0.001
-    val rho1=0.9
-    val rho2=0.999
-    val delta=0.000000001
-    var d_t=Array.ofDim[Double](O,I,kw*kw)
-    var s_h=Array.ofDim[Double](O,I,kw*kw)
-    var r_h=Array.ofDim[Double](O,I,kw*kw)
-    rt1=rt1*rho1
-    rt2=rt2*rho2
-    t=t+1
-    for(i <- 0 until O; j <- 0 until I; k <- 0 until kw*kw){
-      s(i)(j)(k) = rho1*s(i)(j)(k) + (1 - rho1)*d_k(i)(j)(k)
-      r(i)(j)(k) = rho2*r(i)(j)(k) + (1 - rho2)*d_k(i)(j)(k)*d_k(i)(j)(k)
-      s_h(i)(j)(k) = s(i)(j)(k)/(1-rt1)
-      r_h(i)(j)(k) = r(i)(j)(k)/(1-rt2)
-      d_t(i)(j)(k) = - epsilon * (s_h(i)(j)(k)/(math.sqrt(r_h(i)(j)(k))+delta))
-      K(i)(j)(k) = K(i)(j)(k) + d_t(i)(j)(k)
-    }
+  def update() {
     reset()
   }
 
   def reset() {
-    d_k=Array.ofDim[Double](O,I,kw*kw)
+    ys = List[Array[T]]()
   }
 }
-/*
-//D:各データの個数　データ数n
-class BatchNormalization(val D:Int,val n: Int) extends Layer{
-  var xn = D
-  var gamma   = DenseVector.ones[Double](D)
-  var beta    = DenseVector.zeros[Double](D)
-  var d_beta  = DenseVector.zeros[Double](D)
-  var d_gamma = DenseVector.zeros[Double](D)
-  var mu      = DenseVector.zeros[Double](D)
-  var eps     = 0.00000001
-  var sigma   = DenseVector.zeros[Double](D)
-  var x_h     = new Array[DenseVector[Double]](D)
-  var x_m     = new Array[DenseVector[Double]](D)
-  var xmu     = new Array[DenseVector[Double]](D)
-  var dg      = DenseVector.zeros[Double](xn)
-  var db      = DenseVector.zeros[Double](xn)
-  var count   = 0
 
-  def forward(x:Array[Double] )={x}
-
-  def backward(x:Array[Double] )={x}
-
-
-  def forward2(xs:Array[DenseVector[Double]] )={
-
-    
-    var y = new Array[DenseVector[Double]](xs.size)
-
-    for(i <- 0 until xs.size){
-      for (j <- 0 until xn){
-        mu(j)+=xs(i)(j)/xs.size
+class Dropout(var dr:Double) extends Layer {
+  var masks = List[Array[T]]()
+  def push(mask:Array[T]) = { masks ::= mask; mask }
+  def pop() = { val mask = masks.head; masks = masks.tail; mask }
+  val rand=new util.Random(0)
+  def forward(x:Array[T]) = {
+    if(is_test) {
+      x.map(_ * (1 - dr))
+    } else {
+      val mask = push(Array.ofDim[T](x.size))
+      for(i <- 0 until x.size) {
+        if(rand.nextDouble > dr) {
+          mask(i) = 1d
+        }
       }
+      x.zip(mask).map{ case (a,b) => a * b }.toArray
     }
+  }
 
-    x_m = new Array[DenseVector[Double]](xs.size)
-    
-    for(i <- 0 until xs.size){
-      x_m(i)=DenseVector.zeros[Double](xn)
-      for(j <- 0 until xn){
-        x_m(i)(j) = xs(i)(j) - mu(j)
-  
-        sigma(j) += x_m(i)(j)* x_m(i)(j)/xs.size
-      }
-    }
+  def backward(d:Array[T]) = {
+    val mask = pop()
+    (0 until d.size).map(i => if(mask(i) > 0) d(i) else 0d).toArray
+  }
 
-    x_h = new Array[DenseVector[Double]](xs.size)
-    for(i <- 0 until xs.size){
-      y(i)=DenseVector.zeros[Double](xn)
-      x_h(i)=DenseVector.zeros[Double](xn)
-      for (j <- 0 until xn){
-        x_h(i)(j)= (x_m(i)(j))/math.sqrt(sigma(j)+eps)
-        y(i)(j)=gamma(j)*x_h(i)(j)+beta(j)
-      }
+  def update() {
+    reset()
+  }
+
+  def reset() {
+    masks = List[Array[T]]()
+  }
+}
+
+class ReLU() extends Layer {
+  var ys = List[Array[T]]()
+  def push(y:Array[T]) = { ys ::= y; y }
+  def pop() = { val y = ys.head; ys = ys.tail; y }
+
+  def forward(x:Array[T]) = {
+    push(x.map(a => math.max(a,0)))
+  }
+
+  def backward(d:Array[T]) = {
+    val y = pop()
+    (0 until d.size).map(i => if(y(i) > 0) d(i) else 0d).toArray
+  }
+
+  def update() {
+    reset()
+  }
+
+  def reset() {
+    ys = List[Array[T]]()
+  }
+}
+
+class LeakyReLU(val alpha:Double) extends Layer {
+  var ys = List[Array[T]]()
+  def push(y:Array[T]) = { ys ::= y; y }
+  def pop() = { val y = ys.head; ys = ys.tail; y }
+
+  def forward(x:Array[T]) = {
+    push(x.map(a => if(a > 0) a else alpha * a))
+  }
+
+  def backward(d:Array[T]) = {
+    val y = pop()
+    (0 until d.size).map(i => if(y(i) > 0) d(i) else alpha * d(i)).toArray
+  }
+
+  def update() {
+    reset()
+  }
+
+  def reset() {
+    ys = List[Array[T]]()
+  }
+}
+
+class Ident() extends Layer {
+  def forward(x:Array[T]) = x
+  def backward(d:Array[T]) = d
+  def update() {}
+  def reset() {}
+}
+
+class ZeroPadding(val IC:Int, val IH:Int, val IW:Int, P:Int) extends Layer {
+  val OH = IH + 2 * P
+  val OW = IW + 2 * P
+  val OC = IC
+  def iindex(i:Int, j:Int, k:Int) = i * IH * IW + j * IW + k
+  def oindex(i:Int, j:Int, k:Int) = i * OH * OW + j * OW + k
+  def forward(x:Array[T]) = {
+    val y = new Array[T](OC * OH * OW)
+    for(c <- 0 until IC; i <- 0 until IH; j <- 0 until IW) {
+      y(oindex(c,i+P,j+P)) = x(iindex(c,i,j))
     }
     y
   }
-
-
-
-//たてよこの行列を潰して各データのsumに変える
-  def sumMatrix(in:Array[DenseVector[Double]])={
-    var m  = DenseVector.zeros[Double](D)
-    for(j <- 0 until D){
-      for(i <- 0 until n){
-        m(j) += in(i)(j)
-      }
+  def backward(d:Array[T]) = {
+    val d1 = new Array[T](IC * IH * IW)
+    for(c <- 0 until IC; i <- 0 until IH; j <- 0 until IW) {
+      d1(iindex(c,i,j)) = d(oindex(c,i+P,j+P))
     }
-    m
+    d1
   }
-
-  def backward2(d:Array[DenseVector[Double]])={
-
-   
-
-    var d_beta = sumMatrix(d)
-    var dx = new Array[DenseVector[Double]](n)
-  
-    for(i <- 0 until n){
-      dx(i) = DenseVector.zeros[Double](D)
-    }
-
-    for(j <- 0 until D){
-      for(i <- 0 until n){
-        d_gamma(j) += d(i)(j) * x_h(i)(j)
-      }
-    }
-
-    //各次元ごとに計算
-    for(j <- 0 until D ){
-      var d2 = 0d
-      var d1 = DenseVector.zeros[Double](n)
-      for(i <- 0 until n ){
-        d1(i) = gamma(j) * d(i)(j)
-        d2 += x_m(i)(j) *d1(i)
-      }
-      
-      var d3 = - d2 / (sigma(j)+eps) 
-      var d4 = d3 / (2*sqrt(sigma(j)+eps))
-
-      var d8 = 0d
-      var d6 = DenseVector.zeros[Double](n)
-      var d7 = DenseVector.zeros[Double](n)
-     
-      for(i <- 0 until n){
-        var d5 = 1 / n.toDouble *d4
-        d6(i) = 2 * x_m(i)(j) * d5
-        d7(i) = d1(i) * 1/sqrt(sigma(j)+eps)
-        d8 -= d6(i) + d7(i)
-      }
-      for(i <- 0 until n){
-        var d9 = 1 / n.toDouble * d8
-        var d10 = d6(i)+d7(i)
-        dx(i)(j) = d9 + d10
-      }
-
-    }
-    dx
-  }
-  var adam_b = new Adam_DV(xn)
-  var adam_g = new Adam_DV(xn)
-  def update(){
-    adam_b.update(beta,d_beta,n)
-    adam_g.update(gamma,d_gamma,n)
-    reset()
-  }
-  def reset(){
-    db = DenseVector.zeros[Double](xn)
-    dg = DenseVector.zeros[Double](xn)
-    count=0
-  }
-
-  override def save(fn:String){}
-  override def load(fn:String){}
-
+  def update() {}
+  def reset() {}
 }
 
- */
-
-class Adam_DM(val rows:Int, val cols:Int) {
-  val eps = 0.0002
+class Adam(val n:Int, val eps:Double = 0.0002, val rho1:Double  = 0.5, val rho2:Double  = 0.999) {
   val delta = 1e-8
-  val rho1 = 0.5
-  val rho2 = 0.999
   var rho1t = 1d
   var rho2t = 1d
-  var s = DenseMatrix.zeros[Double](rows,cols)
-  var r = DenseMatrix.zeros[Double](rows,cols)
+  var s = Array.ofDim[Double](n)
+  var r = Array.ofDim[Double](n)
 
-  def update(K:DenseMatrix[Double], dK:DenseMatrix[Double],count:Int) = {
-    rho1t *= rho1
-    rho2t *= rho2
-    val rho1tr = 1 / (1 - rho1t)
-    val rho2tr = 1 / (1 - rho2t)
-    for(i <- 0 until K.rows; j <- 0 until K.cols) {
-      s(i,j) = rho1 * s(i,j) + (1 - rho1) * dK(i,j)
-      r(i,j) = rho2 * r(i,j) + (1 - rho2) * dK(i,j) * dK(i,j)
-      val d = (s(i,j) * rho1tr) / (math.sqrt(r(i,j) * rho2tr) + delta)
-      K(i,j) = K(i,j) - eps/count * d
-    }
-  }
-}
-class Adam_DV(val n:Int) {
-  val eps = 0.0002
-  val delta = 1e-8
-  val rho1 = 0.5
-  val rho2 = 0.999
-  var rho1t = 1d
-  var rho2t = 1d
-  var s = DenseVector.zeros[Double](n)
-  var r = DenseVector.zeros[Double](n)
-
-  def update(K:DenseVector[Double], dK:DenseVector[Double],count:Int) = {
+  def update(K:Array[Double], dK:Array[Double]) = {
+    var nK = Array.ofDim[Double](K.size)
     rho1t *= rho1
     rho2t *= rho2
     val rho1tr = 1 / (1 - rho1t)
@@ -580,13 +561,142 @@ class Adam_DV(val n:Int) {
       s(i) = rho1 * s(i) + (1 - rho1) * dK(i)
       r(i) = rho2 * r(i) + (1 - rho2) * dK(i) * dK(i)
       val d = (s(i) * rho1tr) / (math.sqrt(r(i) * rho2tr) + delta)
-      K(i) = K(i) - eps/count * d
+      K(i) = K(i) - eps * d
     }
   }
 }
 
+class Softplus() extends Layer {
+  var ys = List[Array[T]]()
+  def push(y:Array[T]) = { ys ::= y; y }
+  def pop() = { val y = ys.head; ys = ys.tail; y }
 
- 
+  def softplus(x:Double) = x + math.log(1d + math.exp(-x))
+  def sigmoid(x:Double) = 1 / (1d + math.exp(-x))
+
+  def forward(x:Array[T]) = {
+    push(x)
+    x.map(softplus)
+  }
+
+  def backward(d:Array[T]) = {
+    val x = pop()
+    (0 until d.size).map(i => d(i) * sigmoid(x(i))).toArray
+  }
+
+  def update() {
+    reset()
+  }
+
+  def reset() {
+    ys = List[Array[T]]()
+  }
+}
+
+class BNa(val xn:Int, val eps:Double = 0.001, val rho1:Double = 0.9, val rho2:Double = 0.999) extends Layer {
+  var gamma = new Array[T](xn).map(_ => 1 : T)
+  var beta = new Array[T](xn)
+  var dgamma = new Array[T](gamma.size)
+  var dbeta = new Array[T](beta.size)
+  val adam_gamma = new Adam(gamma.size,eps,rho1,rho2)
+  val adam_beta = new Adam(beta.size,eps,rho1,rho2)
+  var xmu = Array.ofDim[T](1,xn) // rhs is just a placeholder value
+  var sigma = new Array[T](xn)
+  val delta = 1e-8
+  var mmu = new Array[T](xn)
+  var msigma = new Array[T](xn)
+  val decay = 0.999
+
+  def forward(x:Array[T]) : Array[T] = {
+    val y = new Array[T](xn)
+    for(i <- 0 until xn) {
+      val xh = (x(i) - mmu(i)) / (msigma(i) + delta)
+      y(i) = xh * gamma(i) + beta(i)
+    }
+    y
+  }
+
+  def backward(d:Array[T]) : Array[T] = {
+    d
+  }
+
+  override def forward(xs:Array[Array[T]]) : Array[Array[T]] = {
+    val m = xs.size
+    xmu = Array.ofDim[T](m,xn)
+    for(j <- 0 until xn) {
+      var mu = 0d
+      for(i <- 0 until m) {
+        mu += xs(i)(j)
+      }
+      mu /= m
+      mmu(j) = decay * mmu(j) + (1-decay) * mu
+      for(i <- 0 until m) {
+        xmu(i)(j) = xs(i)(j) - mu
+        sigma(j) += xmu(i)(j) * xmu(i)(j)
+      }
+      sigma(j) = math.sqrt(sigma(j) / m + delta)
+      msigma(j) = decay * msigma(j) + (1-decay) * sigma(j)
+    }
+
+    var ys = Array.ofDim[T](m,xn)
+    for(j <- 0 until xn) {
+      for(i <- 0 until m) {
+        ys(i)(j) = gamma(j) * xmu(i)(j) / sigma(j) + beta(j)
+      }
+    }
+    ys
+  }
+
+  override def backward(ds:Array[Array[T]]) : Array[Array[T]] = {
+    val m = ds.size
+    var dx = Array.ofDim[T](m,xn)
+    for(j <- 0 until xn) {
+      for(i <- 0 until m) {
+        dbeta(j) += ds(i)(j)
+        dgamma(j) += ds(i)(j) * xmu(i)(j) / sigma(j)
+      }
+
+      var d1 = new Array[T](m)
+      var d2 = 0d
+      for(i <- 0 until m) {
+        d1(i) = gamma(j) * ds(i)(j)
+        d2 += xmu(i)(j) * d1(i)
+      }
+
+      val d3 = -d2 / (sigma(j) * sigma(j))
+      val d4 = d3 / (2 *  sigma(j))
+
+      var d8 = 0d
+      var d10 = new Array[T](m)
+      for(i <- 0 until m) {
+        val d5 = d4 / m
+        val d6 = 2 * xmu(i)(j) * d5
+        val d7 = d1(i) / sigma(j)
+        d10(i) = d6 + d7
+        d8 -= d10(i)
+      }
+      val d9 = d8 / m
+
+      for(i <- 0 until m) {
+        dx(i)(j) = d9 + d10(i)
+      }
+    }
+    dx
+  }
+
+  def update() {
+    adam_beta.update(beta,dbeta)
+    adam_gamma.update(gamma,dgamma)
+    reset()
+  }
+
+  def reset() {
+    dgamma = new Array[T](gamma.size)
+    dbeta = new Array[T](beta.size)
+  }
+}
+
+
 
 object Image {
   def rgb(im : java.awt.image.BufferedImage, i:Int, j:Int) = {
@@ -633,7 +743,7 @@ object Image {
     val im = Array.ofDim[Int](NH * H, NW * W, 3)
     /*  val ymax = ys.flatten.max
      val ymin = ys.flatten.min*/
-    def f(a:Double) = (a*255).toInt
+    def f(a:Double) = (((a+1)/2)*255).toInt
 
     for(i <- 0 until NH; j <- 0 until NW) {
       for(p <- 0 until H; q <- 0 until W; k <- 0 until 3) {
@@ -677,230 +787,3 @@ object Image {
 
 
 }
-
-class BNsaki(val xn:Int) extends Layer {
-  val epsilon=10E-8
-  var beta = Array.ofDim[Double](xn)
-  var gamma = Array.ofDim[Double](xn)
-  for(i <- 0 until xn){gamma(i)=1d}
-  var mu = Array.ofDim[Double](xn)
-  var sigma = Array.ofDim[Double](xn)
-  var x_h = new Array[Array[Double]](1)
-  var x_m = new Array[Array[Double]](1)
-  var dg =  Array.ofDim[Double](xn)
-  var db =  Array.ofDim[Double](xn)
-  var count=0
-
-
-  def forward(xs:Array[Double]) = xs
-  def backward(xs:Array[Double])= xs
-
-  override def forward(xs:Array[Array[Double]])={
-    var y = new Array[Array[Double]](xs.size)
- 
-    for(i <- 0 until xs.size){
-      for (j <- 0 until xn){
-        mu(j)+=xs(i)(j)/xs.size
-      }
-    }
-    x_m=new Array[Array[Double]](xs.size)
-    for(i <- 0 until xs.size){
-      x_m(i)=Array.ofDim[Double](xn)
-      for(j <- 0 until xn){
-        x_m(i)(j) = xs(i)(j)-mu(j)
-        sigma(j) += x_m(i)(j)* x_m(i)(j)/xs.size
-      }
-    }
-    x_h=new Array[Array[Double]](xs.size)
-    for(i <- 0 until xs.size){
-      y(i)=Array.ofDim[Double](xn)
-      x_h(i)=Array.ofDim[Double](xn)
-      for (j <- 0 until xn){
-        x_h(i)(j)= (x_m(i)(j))/math.sqrt(sigma(j)+epsilon)
-        y(i)(j)=gamma(j)*x_h(i)(j)+beta(j)
-      }
-    }
-    y
-  }
-
-  override def backward(ds:Array[Array[Double]])={
-    var dx = new Array[Array[Double]](ds.size)
-    var d1 = new Array[Array[Double]](ds.size)
-    var d2 = Array.ofDim[Double](xn)
-    var d6 = new Array[Array[Double]](ds.size)
-    var d7 = new Array[Array[Double]](ds.size)
-    var d8 = Array.ofDim[Double](xn)
-    var d10 = new Array[Array[Double]](ds.size)
-
-  for(i <- 0 until ds.size){
-    d6(i)=Array.ofDim[Double](xn)
-    d7(i)=Array.ofDim[Double](xn)
-    d1(i)=Array.ofDim[Double](xn)
-      for(j <- 0 until xn){
-        d1(i)(j)=ds(i)(j)*gamma(j)
-        d2(j) += d1(i)(j)*x_m(i)(j)
-      }
-    }
-   for(j <- 0 until xn){
-     var d3=d2(j)*(-1d)/(sigma(j)+epsilon)
-     var d4=(1d/(2*(math.sqrt(sigma(j)+epsilon))))*d3
-     for(i <- 0 until ds.size){
-      
-       d10(i)=Array.ofDim[Double](xn)
-       dx(i)=Array.ofDim[Double](xn)
-       var d5=d4/ds.size
-       d6(i)(j)=2*x_m(i)(j)*d5
-       d7(i)(j)=d1(i)(j)/(math.sqrt(sigma(j)+epsilon))
-       d8(j) += -(d6(i)(j)+d7(i)(j))
-     }
-   }
-   for(i <- 0 until ds.size;j <- 0 until xn){
-     var d9 = d8(j)/ds.size
-     d10(i)(j) = d6(i)(j)+d7(i)(j)
-     dx(i)(j) = d9+d10(i)(j)
-     dg(j) += ds(i)(j) * x_h(i)(j)
-     db(j) += ds(i)(j)
-   }
-   count=ds.size
-   dx
-  }
-
-  var adam_b = new Adam_D(xn)
-  var adam_g = new Adam_D(xn)
-  def update(){
-    adam_b.update(beta,db,count)
-    adam_g.update(gamma,dg,count)
-    reset()
-  }
-  def reset(){
-    db = Array.ofDim[Double](xn)
-    dg = Array.ofDim[Double](xn)
-    count=0
-  }
-}
-
-class Adam_DA(val rows:Int, val cols:Int) {
-  val eps = 0.0002
-  val delta = 1e-8
-  val rho1 = 0.5
-  val rho2 = 0.999
-  var rho1t = 1d
-  var rho2t = 1d
-  var s = Array.ofDim[Double](rows,cols)
-  var r = Array.ofDim[Double](rows,cols)
-
-  def update(K:Array[Array[Double]], dK:Array[Array[Double]],count:Int) = {
-    rho1t *= rho1
-    rho2t *= rho2
-    val rho1tr = 1 / (1 - rho1t)
-    val rho2tr = 1 / (1 - rho2t)
-    for(i <- 0 until K.size; j <- 0 until K(0).size) {
-      s(i)(j) = rho1 * s(i)(j) + (1 - rho1) * dK(i)(j)
-      r(i)(j) = rho2 * r(i)(j) + (1 - rho2) * dK(i)(j) * dK(i)(j)
-      val d = (s(i)(j) * rho1tr) / (math.sqrt(r(i)(j) * rho2tr) + delta)
-      K(i)(j) = K(i)(j) - eps/count * d
-    }
-  }
-}
-class Adam_D(val n:Int) {
-  val eps = 0.0002
-  val delta = 1e-8
-  val rho1 = 0.5
-  val rho2 = 0.999
-  var rho1t = 1d
-  var rho2t = 1d
-  var s = new Array[Double](n)
-  var r = new Array[Double](n)
-
-  def update(K:Array[Double], dK:Array[Double],count:Int) = {
-    rho1t *= rho1
-    rho2t *= rho2
-    val rho1tr = 1 / (1 - rho1t)
-    val rho2tr = 1 / (1 - rho2t)
-    for(i <- 0 until K.size) {
-      s(i) = rho1 * s(i) + (1 - rho1) * dK(i)
-      r(i) = rho2 * r(i) + (1 - rho2) * dK(i) * dK(i)
-      val d = (s(i) * rho1tr) / (math.sqrt(r(i) * rho2tr) + delta)
-      K(i) = K(i) - eps/count * d
-    }
-  }
-}
-
-
-class LeakyReLU(val alpha:Double) extends Layer {
-  var ys = List[Array[Double]]()
-  def push(y:Array[Double]) = { ys ::= y; y }
-  def pop() = { val y = ys.head; ys = ys.tail; y }
-
-  def forward(x:Array[Double]) = {
-    push(x.map(a => if(a > 0) a else alpha * a))
-  }
-
-  def backward(d:Array[Double]) = {
-    val y = pop()
-      (0 until d.size).map(i => if(y(i) > 0) d(i) else alpha * d(i)).toArray
-  }
-
-  def update() {
-    reset()
-  }
-
-  def reset() {
-    ys = List[Array[Double]]()
-  }
-
-  override def save(fn:String){}
-  override def load(fn:String){}
-
-}
-
-
-class Adam(val n:Int, val eps:Double = 0.001, val rho1:Double  = 0.9, val rho2:Double  = 0.999) {
-  val delta = 1e-8
-  var rho1t = 1d
-  var rho2t = 1d
-  var s = Array.ofDim[Double](n)
-  var r = Array.ofDim[Double](n)
-
-  def update(K:Array[Double], dK:Array[Double]) = {
-    var nK = Array.ofDim[Double](K.size)
-    rho1t *= rho1
-    rho2t *= rho2
-    val rho1tr = 1 / (1 - rho1t)
-    val rho2tr = 1 / (1 - rho2t)
-    for(i <- 0 until K.size) {
-      s(i) = rho1 * s(i) + (1 - rho1) * dK(i)
-      r(i) = rho2 * r(i) + (1 - rho2) * dK(i) * dK(i)
-      val d = (s(i) * rho1tr) / (math.sqrt(r(i) * rho2tr) + delta)
-      K(i) = K(i) - eps * d
-    }
-  }
-}
-
-class Softplus() extends Layer {
-  var ys = List[Array[Double]]()
-  def push(y:Array[Double]) = { ys ::= y; y }
-  def pop() = { val y = ys.head; ys = ys.tail; y }
-
-  def softplus(x:Double) = x + math.log(1d + math.exp(-x))
-  def sigmoid(x:Double) = 1 / (1d + math.exp(-x))
-
-  def forward(x:Array[Double]) = {
-    push(x)
-    x.map(softplus)
-  }
-
-  def backward(d:Array[Double]) = {
-    val x = pop()
-      (0 until d.size).map(i => d(i) * sigmoid(x(i))).toArray
-  }
-
-  def update() {
-    reset()
-  }
-
-  def reset() {
-    ys = List[Array[Double]]()
-  }
-}
-
